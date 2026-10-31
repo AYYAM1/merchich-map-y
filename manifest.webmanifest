@@ -1,0 +1,14 @@
+{
+  "name": "MERCHICH MAP",
+  "short_name": "Merchich Map",
+  "description": "Repérage cartographique en coordonnées Merchich Nord et Sud.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f6f8f8",
+  "theme_color": "#102b35",
+  "icons": [
+    { "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
