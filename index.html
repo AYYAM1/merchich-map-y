@@ -10,7 +10,6 @@
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./icon.svg">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.css">
   <style>
     :root { --ink:#102b35; --accent:#e6a23c; --paper:#f6f8f8; --muted:#64757b; --line:#dce4e5; }
     * { box-sizing:border-box; }
@@ -93,25 +92,9 @@
     <button id="exportBtn">Exporter CSV</button>
   </div>
   <div class="status" id="savedCount">Aucun point enregistré.</div>
-<div class="parcel-box" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--line)">
-  <b style="font-size:12px;letter-spacing:.06em">DÉLIMITATION DE PARCELLE</b>
-  <div class="status">Choisis l'outil polygone sur la carte, place les sommets puis ferme le contour.</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px">
-    <div class="coord"><div class="label">SURFACE</div><div class="value" id="areaVal">—</div></div>
-    <div class="coord"><div class="label">PÉRIMÈTRE</div><div class="value" id="perimeterVal">—</div></div>
-    <div class="coord"><div class="label">SOMMETS</div><div class="value" id="verticesVal">0</div></div>
-  </div>
-  <div class="bottom-row">
-    <button id="exportDxfBtn" class="primary" disabled>Exporter DXF</button>
-    <button id="exportParcelCsvBtn" disabled>Exporter CSV parcelle</button>
-    <button id="clearParcelBtn" disabled>Effacer</button>
-  </div>
-  <div class="status" id="parcelStatus">Aucune parcelle dessinée.</div>
-</div>
 </section>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.draw/1.0.4/leaflet.draw.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/proj4@2.11.0/dist/proj4.js"></script>
 <script>
 (() => {
@@ -223,56 +206,6 @@
     const csv = "\uFEFF" + rows.map(r => r.map(v => `"${String(v).replaceAll('"','""')}"`).join(";")).join("\r\n");
     const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
     const a = document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="merchich-map-points.csv"; a.click(); URL.revokeObjectURL(a.href);
-  });
-
-
-  // Dessin de parcelle : calcul dans le plan projeté Merchich, en mètres.
-  const drawnItems = new L.FeatureGroup();
-  map.addLayer(drawnItems);
-  let parcelData = null;
-  map.addControl(new L.Control.Draw({
-    position:"topleft",
-    draw:{polygon:{allowIntersection:false,showArea:false,shapeOptions:{color:"#e6a23c",weight:3,fillOpacity:.18}},polyline:false,rectangle:false,circle:false,marker:false,circlemarker:false},
-    edit:{featureGroup:drawnItems,remove:true}
-  }));
-  function getParcelMetrics(layer) {
-    const ring=layer.getLatLngs()[0];
-    if(!ring||ring.length<3)return null;
-    const pts=ring.map((ll,i)=>{const c=convert(ll.lat,ll.lng);return {n:i+1,lat:ll.lat,lon:ll.lng,x:c.x,y:c.y,epsg:c.epsg,zone:c.zone};});
-    const codes=[...new Set(pts.map(v=>v.epsg))];
-    if(codes.length!==1)return {error:"Cette parcelle traverse la limite entre deux zones de projection. Dessine-la dans une seule zone."};
-    let twice=0,per=0;
-    pts.forEach((v,i)=>{const q=pts[(i+1)%pts.length];twice+=v.x*q.y-q.x*v.y;per+=Math.hypot(q.x-v.x,q.y-v.y);});
-    return {pts,area:Math.abs(twice)/2,per,epsg:codes[0],zone:pts[0].zone};
-  }
-  function refreshParcel(layer) {
-    parcelData=layer?getParcelMetrics(layer):null;
-    const ok=parcelData&&!parcelData.error;
-    $("areaVal").textContent=ok?(parcelData.area>=10000?(parcelData.area/10000).toLocaleString("fr-FR",{maximumFractionDigits:4})+" ha":parcelData.area.toLocaleString("fr-FR",{maximumFractionDigits:2})+" m²"):"—";
-    $("perimeterVal").textContent=ok?parcelData.per.toLocaleString("fr-FR",{maximumFractionDigits:2})+" m":"—";
-    $("verticesVal").textContent=ok?String(parcelData.pts.length):(parcelData?.error?"—":"0");
-    $("exportDxfBtn").disabled=!ok;$("exportParcelCsvBtn").disabled=!ok;$("clearParcelBtn").disabled=!layer;
-    $("parcelStatus").textContent=!layer?"Aucune parcelle dessinée.":parcelData.error||(`${parcelData.zone} • Surface calculée dans la projection • transformation indicative : 7 m.`);
-  }
-  map.on(L.Draw.Event.CREATED,e=>{drawnItems.clearLayers();drawnItems.addLayer(e.layer);refreshParcel(e.layer);});
-  map.on(L.Draw.Event.EDITED,e=>e.layers.eachLayer(layer=>refreshParcel(layer)));
-  map.on(L.Draw.Event.DELETED,()=>refreshParcel(null));
-  $("clearParcelBtn").addEventListener("click",()=>{drawnItems.clearLayers();refreshParcel(null);});
-  function downloadParcel(filename,content,type){const blob=new Blob([content],{type}),url=URL.createObjectURL(blob),a=document.createElement("a");a.href=url;a.download=filename;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
-  $("exportParcelCsvBtn").addEventListener("click",()=>{
-    if(!parcelData||parcelData.error)return;
-    const d=parcelData,rows=[["Type","Valeur"],["Surface_m2",d.area.toFixed(3)],["Surface_ha",(d.area/10000).toFixed(6)],["Perimetre_m",d.per.toFixed(3)],["Projection",d.epsg],[],["Sommet","X_Est_m","Y_Nord_m","Latitude_WGS84","Longitude_WGS84"]];
-    d.pts.forEach(v=>rows.push([v.n,v.x.toFixed(3),v.y.toFixed(3),v.lat.toFixed(8),v.lon.toFixed(8)]));
-    const csv="\uFEFF"+rows.map(r=>r.map(v=>`"${String(v??"").replaceAll('"','""')}"`).join(";")).join("\r\n");
-    downloadParcel("merchich-parcelle.csv",csv,"text/csv;charset=utf-8");
-  });
-  $("exportDxfBtn").addEventListener("click",()=>{
-    if(!parcelData||parcelData.error)return;
-    let dxf="0\nSECTION\\n2\\nHEADER\\n9\\n$ACADVER\\n1\\nAC1009\\n0\\nENDSEC\\n0\\nSECTION\\n2\\nENTITIES\\n";
-    dxf+="0\nPOLYLINE\\n8\\nPARCELLE\\n66\\n1\\n70\\n1\\n";
-    parcelData.pts.forEach(v=>{dxf+=`0\nVERTEX\n8\nPARCELLE\n10\n${v.x.toFixed(3)}\n20\n${v.y.toFixed(3)}\n30\n0.0\n`;});
-    dxf+="0\nSEQEND\n8\nPARCELLE\n0\nENDSEC\n0\nEOF\n";
-    downloadParcel("merchich-parcelle.dxf",dxf,"application/dxf");
   });
 
   // Open on current position when permission is granted; otherwise ask once.
