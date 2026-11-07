@@ -636,6 +636,7 @@
 
     lastCalc = { hasA, hasR, A, R, V0, LRg, k, kTot, H, results };
     drawMap();
+    autoFit();
   }
   let lastCalc = null;
 
@@ -802,13 +803,26 @@
         .addTo(implLayer);
     });
   }
-  function fitToPoints() {
+  function fitToPoints(silent = false) {
     const pts = [];
     implLayer.eachLayer(l => { if (l.getLatLng) pts.push(l.getLatLng()); });
-    if (!pts.length) { gisStatus("Aucun point valide à afficher.", "warn"); return; }
-    if (pts.length === 1) map.setView(pts[0], 18); else map.fitBounds(L.latLngBounds(pts), { padding:[40,40], maxZoom:19 });
+    if (!pts.length) { if (!silent) gisStatus("Aucun point valide à afficher.", "warn"); return; }
+    const opts = { duration:0.8 };
+    if (pts.length === 1) map.flyTo(pts[0], 18, opts);
+    else map.flyToBounds(L.latLngBounds(pts), { ...opts, padding:[50,50], maxZoom:19 });
   }
-  $("fitBtn").addEventListener("click", fitToPoints);
+  $("fitBtn").addEventListener("click", () => fitToPoints());
+
+  // Zoom automatique : dès que les points valides changent, la carte s'adapte (après une courte pause de saisie)
+  let lastSig = "", fitTimer = 0;
+  function autoFit() {
+    const sig = [st.A, st.R, ...st.bornes].filter(isValid).map(p => { const v = ptVal(p); return v.x.toFixed(2) + "," + v.y.toFixed(2); }).join("|") + st.zone;
+    if (sig === lastSig) return;
+    lastSig = sig;
+    if ($("tab-gis").hidden) return;
+    clearTimeout(fitTimer);
+    fitTimer = setTimeout(() => fitToPoints(true), 700);
+  }
 
   /* ----- Fiche : copier / exporter ----- */
   function ficheRows() {
@@ -856,14 +870,13 @@
     }
     if (name !== "gis") setPick(null);
     store.set("mm-tab", name);
-    setTimeout(() => map.invalidateSize(), 50);
+    setTimeout(() => { map.invalidateSize(); if (name === "gis") fitToPoints(true); }, 50);
   }
   document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
 
   fillStaticInputs(); renderBornes(); compute();
   const startTab = store.get("mm-tab", "rep");
   showTab(startTab);
-  if (startTab === "gis" && lastCalc && lastCalc.hasA) setTimeout(fitToPoints, 100);
 
   // Open on current position when permission is granted; otherwise ask once.
   // Au démarrage : position GPS (centre la carte en Repérage, règle seulement la zone en Gisement)
