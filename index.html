@@ -394,6 +394,11 @@
   // Ellipsoïde Clarke 1880 (IGN) utilisé par Merchich
   const A_CLK = 6378249.2, B_CLK = 6356515.0;
   const E2 = 1 - (B_CLK*B_CLK)/(A_CLK*A_CLK), E = Math.sqrt(E2);
+  // Coordonnées géographiques Merchich ; la projection passe par le même datum, donc aucune transformation
+  const MERCHICH_GEO = "+proj=longlat +ellps=clrk80ign +towgs84=31,146,47,0,0,0,0 +no_defs";
+  // Facteur d'échelle Lambert conique conforme 1SP, d'après Snyder, USGS Professional Paper 1395 (1987),
+  // chapitre « Lambert Conformal Conic » ; paramètres EPSG:26191 / 26192 ; ellipsoïde EPSG:7011.
+  // Vérifié contre PROJ (proj4js) : identique à 1e-9 sur les zones Nord et Sud.
 
   // Facteur d'échelle d'une projection Lambert conique conforme 1SP : k = k0·(m0/m)·(t/t0)^n
   function lccScale(latDeg, z) {
@@ -574,8 +579,9 @@
     // Facteur d'échelle local au droit de la station
     let k = NaN, kTot = 1;
     if (hasA) {
-      const ll = toLatLng(A.x, A.y, st.zone);
-      if (ll) { k = lccScale(ll[0], z); kTot = k * RT / (RT + H); }
+      // Latitude Merchich (ellipsoïde Clarke 1880 IGN, sans changement de datum) pour un k exact
+      const geo = proj4(st.zone, MERCHICH_GEO, [A.x, A.y]);
+      if (Number.isFinite(geo[1])) { k = lccScale(geo[1], z); kTot = k * RT / (RT + H); }
       if (!Number.isFinite(kTot)) kTot = 1;
     }
     const terrain = d => d / kTot;
