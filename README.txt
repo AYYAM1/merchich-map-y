@@ -7,7 +7,27 @@
 - Recherche un lieu au Maroc.
 - Copie les coordonnées et exporte les points enregistrés en CSV.
 - Peut être installée comme application web (PWA) sur téléphone et ordinateur.
--
+- Les points enregistrés sont conservés sur l'appareil (localStorage).
+
+## Onglet « Gisement & implantation »
+- Station A (point connu), référence R (orientation, facultative) et une ou plusieurs bornes B à rétablir.
+- Calcule pour chaque borne : gisement A→B (Nord grille, sens horaire), distance, ΔX/ΔY.
+- Avec R et la lecture faite sur R : V0 = G(A→R) − Lecture(R) et lecture à afficher = G(A→B) − V0.
+- Contrôle : saisir la distance mesurée A→R pour voir l'écart en cm.
+- Angles en grades, degrés décimaux ou degrés-minutes-secondes.
+- Facteur d'échelle Lambert k calculé au droit de la station (Clarke 1880 IGN) + correction d'altitude :
+  distance terrain = distance grille ÷ (k × R/(R+H)). Réglage visible « Ta station applique le facteur
+  d'échelle ? » : Non (par défaut) = distances terrain, Oui = distances grille. L'effet est affiché en cm/100 m.
+- Altitude du chantier : saisie ou bouton GPS (±50 m suffit).
+- Zone Nord/Sud choisie automatiquement d'après le GPS (tant qu'elle n'est pas choisie à la main
+  et qu'aucune station n'est saisie). Alertes : points hors de la zone choisie (avec suggestion de
+  l'autre zone), GPS dans une autre zone que la fiche, point à plus de 2 km de la station.
+- Saisie rapide : virgule ou point décimal, coller « X Y » dans un champ, ou coller une liste
+  « Nom X Y » (une borne par ligne, copiée depuis Excel) pour créer plusieurs bornes d'un coup.
+- 📍 place un point en touchant la carte (repérage seulement, ±7 m).
+- Boutons « → Station A » / « → Nouvelle borne » dans l'onglet Repérage.
+- Affichage A, R, bornes et visées sur la carte ; fiche copiable en texte ou exportable en CSV.
+- Saisies conservées sur l'appareil ; le calcul fonctionne hors ligne une fois l'application chargée.
 
 ## Précision et limites importantes
 - Le code utilise les définitions de projection EPSG:26191 et EPSG:26192 et l'opération de transformation EPSG:1166 (translations géocentriques +31, +146, +47 m).

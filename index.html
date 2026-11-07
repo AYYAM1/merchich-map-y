@@ -4,14 +4,14 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#102b35">
-  <meta name="description" content="Carte interactive et repérage en coordonnées Merchich Nord et Sud.">
+  <meta name="description" content="Carte interactive, coordonnées Merchich Nord et Sud, calcul de gisement et fiche d'implantation.">
   <title>MERCHICH MAP</title>
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="./icon.svg">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
   <style>
-    :root { --ink:#102b35; --accent:#e6a23c; --paper:#f6f8f8; --muted:#64757b; --line:#dce4e5; }
+    :root { --ink:#102b35; --accent:#e6a23c; --paper:#f6f8f8; --muted:#64757b; --line:#dce4e5; --good:#16734a; --warn:#9b5b00; --bad:#b3261e; }
     * { box-sizing:border-box; }
     html,body { margin:0; height:100%; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; color:var(--ink); background:var(--paper); }
     body { display:flex; flex-direction:column; }
@@ -19,41 +19,87 @@
     .brand { font-weight:800; letter-spacing:.08em; font-size:17px; }
     .sub { font-size:11px; opacity:.75; margin-top:2px; }
     .top-actions { display:flex; gap:8px; }
-    button, .file-label { border:0; border-radius:10px; padding:10px 12px; font-weight:650; cursor:pointer; background:#e8eff0; color:var(--ink); }
+    button { border:0; border-radius:10px; padding:10px 12px; font:inherit; font-size:14px; font-weight:650; cursor:pointer; background:#e8eff0; color:var(--ink); }
     button.primary { background:var(--accent); color:#182a2e; }
     button.dark { background:#25444e; color:white; }
     button:disabled { opacity:.5; cursor:not-allowed; }
-    #map { flex:1; min-height:260px; z-index:1; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--accent); outline-offset:1px; }
+    #map { flex:1; min-height:240px; z-index:1; }
+    #map.picking { cursor:crosshair; }
     .panel { background:white; border-top:1px solid var(--line); padding:12px 14px calc(12px + env(safe-area-inset-bottom)); box-shadow:0 -4px 18px #102b3510; z-index:500; }
+    .tabs { display:flex; gap:4px; background:#e8eff0; padding:4px; border-radius:12px; margin-bottom:12px; }
+    .tabs button { flex:1; background:transparent; padding:9px 6px; font-size:13px; }
+    .tabs button[aria-selected="true"] { background:white; box-shadow:0 1px 3px #102b3526; }
     .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
     .search-wrap { display:flex; flex:1; min-width:0; gap:6px; }
-    input { min-width:0; width:100%; border:1px solid var(--line); border-radius:10px; padding:10px 12px; font:inherit; background:white; }
+    input, select { min-width:0; width:100%; border:1px solid var(--line); border-radius:10px; padding:10px 11px; font:inherit; font-size:16px; background:white; color:var(--ink); }
+    input.num { font-variant-numeric:tabular-nums; }
+    input.invalid { border-color:var(--bad); background:#fff5f4; }
     .coords { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .coord { background:#f2f6f6; border:1px solid var(--line); border-radius:12px; padding:10px 12px; min-width:0; }
     .coord .label { color:var(--muted); font-size:11px; font-weight:700; letter-spacing:.04em; }
     .coord .value { font-size:clamp(18px,4vw,24px); font-weight:800; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; margin-top:2px; }
     .meta { display:flex; flex-wrap:wrap; gap:7px 14px; margin-top:9px; color:var(--muted); font-size:12px; }
     .status { margin-top:8px; font-size:12px; line-height:1.4; color:var(--muted); }
-    .status.warn { color:#9b5b00; }
-    .status.good { color:#16734a; }
+    .status.warn { color:var(--warn); }
+    .status.good { color:var(--good); }
     .bottom-row { display:flex; justify-content:space-between; gap:8px; margin-top:10px; }
-    .bottom-row button { flex:1; }
+    .bottom-row button { flex:1; padding:10px 8px; font-size:13px; }
+
+    /* Gisement */
+    .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+    label.f { display:flex; flex-direction:column; gap:4px; font-size:11px; font-weight:700; color:var(--muted); letter-spacing:.03em; min-width:0; }
+    h3 { font-size:13px; margin:14px 0 6px; display:flex; align-items:baseline; gap:6px; flex-wrap:wrap; }
+    h3 small { font-weight:500; color:var(--muted); font-size:11px; }
+    .dot { width:10px; height:10px; border-radius:50%; display:inline-block; flex:none; align-self:center; }
+    .xy { display:grid; grid-template-columns:1fr 1fr auto; gap:6px; }
+    .icon-btn { padding:8px 10px; font-size:15px; line-height:1; }
+    .picking input[data-f="x"], .picking input[data-f="y"] { border-color:var(--accent); background:#fff8ec; }
+    .picking .pick-btn { background:var(--accent); }
+    .card { background:#f2f6f6; border:1px solid var(--line); border-radius:12px; padding:9px 11px; margin-top:8px; font-size:12.5px; line-height:1.5; font-variant-numeric:tabular-nums; }
+    .card .hint { color:var(--muted); }
+    .borne { border:1px solid var(--line); border-radius:12px; padding:10px; margin-bottom:8px; background:white; }
+    .borne-head { display:flex; gap:6px; margin-bottom:6px; align-items:center; }
+    .borne-head input { font-weight:700; padding:7px 10px; }
+    .kpis { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+    .kpi { background:#f2f6f6; border-radius:10px; padding:7px 10px; min-width:0; }
+    .kpi span { display:block; font-size:10.5px; color:var(--muted); font-weight:700; letter-spacing:.03em; }
+    .kpi b { font-size:17px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+    .lecture { margin-top:8px; background:#fff4e0; border:1px solid #f1d39f; border-radius:10px; padding:8px 10px; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .lecture span { font-size:11px; font-weight:700; color:#7a4f00; letter-spacing:.03em; }
+    .lecture b { font-size:19px; font-variant-numeric:tabular-nums; }
+    .detail { font-size:11.5px; color:var(--muted); margin-top:6px; font-variant-numeric:tabular-nums; }
+    .out-empty { font-size:12px; color:var(--muted); }
+    .ok { color:var(--good); font-weight:700; } .bad { color:var(--bad); font-weight:700; }
+    details { margin-top:10px; font-size:12.5px; }
+    summary { cursor:pointer; font-weight:700; padding:6px 0; }
+    details p { color:var(--muted); font-size:11.5px; line-height:1.45; margin:6px 0; }
+    .inline { display:flex; gap:6px; }
+    .add-row { display:flex; gap:8px; }
+    .add-row button { flex:1; font-size:13px; }
+    .map-label { background:white; border:1px solid var(--line); border-radius:6px; padding:1px 6px; font-weight:700; font-size:11px; box-shadow:none; }
+    .map-label::before { display:none; }
+
     .leaflet-control-attribution { font-size:9px !important; }
     .leaflet-popup-content { font-size:13px; }
+    @media (max-width:849px) {
+      .panel { max-height:60vh; overflow:auto; }
+    }
     @media (min-width:850px) {
-      body { display:grid; grid-template-columns:minmax(0,1fr) 370px; grid-template-rows:62px minmax(0,1fr); }
+      body { display:grid; grid-template-columns:minmax(0,1fr) 400px; grid-template-rows:62px minmax(0,1fr); }
       header { grid-column:1 / -1; }
       #map { grid-column:1; grid-row:2; }
-      .panel { grid-column:2; grid-row:2; border-top:0; border-left:1px solid var(--line); padding:18px; overflow:auto; }
+      .panel { grid-column:2; grid-row:2; border-top:0; border-left:1px solid var(--line); padding:16px 18px; overflow:auto; }
       .toolbar { flex-wrap:wrap; }
       .search-wrap { flex-basis:100%; }
-      .coords { grid-template-columns:1fr; }
+      #tab-rep .coords { grid-template-columns:1fr; }
     }
     @media (max-width:420px) {
       header { padding:10px 12px; }
       .brand { font-size:15px; }
       .top-actions button { padding:9px 10px; font-size:12px; }
       .panel { padding-left:10px; padding-right:10px; }
+      .kpi b { font-size:15px; }
     }
   </style>
 </head>
@@ -61,7 +107,7 @@
 <header>
   <div>
     <div class="brand">MERCHICH MAP</div>
-    <div class="sub">Repérage • Maroc • Coordonnées en mètres</div>
+    <div class="sub">Repérage • Gisement • Maroc</div>
   </div>
   <div class="top-actions">
     <button class="dark" id="installBtn" hidden>Installer</button>
@@ -69,29 +115,125 @@
   </div>
 </header>
 <div id="map" aria-label="Carte interactive"></div>
-<section class="panel">
-  <div class="toolbar">
-    <div class="search-wrap">
-      <input id="searchInput" type="search" placeholder="Rechercher une ville ou un lieu…" autocomplete="off">
-      <button id="searchBtn" class="primary">Chercher</button>
+<section class="panel" id="panel">
+  <div class="tabs" role="tablist">
+    <button role="tab" id="tabBtn-rep" data-tab="rep" aria-selected="true" aria-controls="tab-rep">Repérage X/Y</button>
+    <button role="tab" id="tabBtn-gis" data-tab="gis" aria-selected="false" aria-controls="tab-gis">Gisement &amp; implantation</button>
+  </div>
+
+  <!-- ============ ONGLET REPÉRAGE ============ -->
+  <div id="tab-rep" role="tabpanel" aria-labelledby="tabBtn-rep">
+    <div class="toolbar">
+      <div class="search-wrap">
+        <input id="searchInput" type="search" placeholder="Rechercher une ville ou un lieu…" autocomplete="off">
+        <button id="searchBtn" class="primary">Chercher</button>
+      </div>
+      <button id="layersBtn" title="Changer de fond">Carte</button>
     </div>
-    <button id="layersBtn" title="Changer de fond">Fond</button>
+    <div class="coords">
+      <div class="coord"><div class="label">X — EST (m)</div><div class="value" id="xVal">—</div></div>
+      <div class="coord"><div class="label">Y — NORD (m)</div><div class="value" id="yVal">—</div></div>
+    </div>
+    <div class="meta">
+      <span id="zoneVal">Zone : —</span>
+      <span id="accuracyVal">Précision méthode : —</span>
+    </div>
+    <div class="status" id="status">Autorise la localisation pour ouvrir la carte sur ta position, ou touche directement la carte pour choisir un point.</div>
+    <div class="bottom-row">
+      <button id="copyBtn">Copier X / Y</button>
+      <button id="saveBtn" class="primary">Enregistrer</button>
+      <button id="exportBtn">Exporter CSV</button>
+    </div>
+    <div class="bottom-row">
+      <button id="toStationBtn">→ Station A</button>
+      <button id="toBorneBtn">→ Nouvelle borne</button>
+      <button id="clearSavedBtn">Vider la liste</button>
+    </div>
+    <div class="status" id="savedCount">Aucun point enregistré.</div>
   </div>
-  <div class="coords">
-    <div class="coord"><div class="label">X — EST (m)</div><div class="value" id="xVal">—</div></div>
-    <div class="coord"><div class="label">Y — NORD (m)</div><div class="value" id="yVal">—</div></div>
+
+  <!-- ============ ONGLET GISEMENT ============ -->
+  <div id="tab-gis" role="tabpanel" aria-labelledby="tabBtn-gis" hidden>
+    <div class="grid2">
+      <label class="f"><span id="zoneLabel">ZONE</span>
+        <select id="zoneSel">
+          <option value="EPSG:26191">Nord Maroc (26191)</option>
+          <option value="EPSG:26192">Sud Maroc (26192)</option>
+        </select>
+      </label>
+      <label class="f">ANGLES
+        <select id="unitSel">
+          <option value="gon">Grades (gon)</option>
+          <option value="deg">Degrés décimaux</option>
+          <option value="dms">Degrés ° ′ ″</option>
+        </select>
+      </label>
+    </div>
+    <div class="grid2" style="margin-top:8px">
+      <label class="f">TA STATION APPLIQUE LE FACTEUR D'ÉCHELLE ?
+        <select id="distMode">
+          <option value="terrain">Non (terrain)</option>
+          <option value="grid">Oui (grille)</option>
+        </select>
+      </label>
+      <label class="f">ALTITUDE DU CHANTIER (m)
+        <span class="inline">
+          <input class="num" id="Halt" inputmode="decimal" placeholder="0">
+          <button class="icon-btn" id="hGpsBtn" type="button" title="Remplir avec l'altitude GPS">GPS</button>
+        </span>
+      </label>
+    </div>
+    <div class="status warn" id="zoneWarn" hidden></div>
+
+    <h3><span class="dot" style="background:#0879d1"></span>Station A <small>point connu où tu stationnes</small></h3>
+    <div class="pt" data-pt="A">
+      <div class="xy">
+        <input class="num" data-f="x" inputmode="decimal" placeholder="X Est (m)" aria-label="X de la station A">
+        <input class="num" data-f="y" inputmode="decimal" placeholder="Y Nord (m)" aria-label="Y de la station A">
+        <button class="icon-btn pick-btn" data-act="pick" title="Placer sur la carte">📍</button>
+      </div>
+    </div>
+
+    <h3><span class="dot" style="background:#64757b"></span>Référence R <small>point visé pour orienter (facultatif)</small></h3>
+    <div class="pt" data-pt="R">
+      <div class="xy">
+        <input class="num" data-f="x" inputmode="decimal" placeholder="X Est (m)" aria-label="X de la référence R">
+        <input class="num" data-f="y" inputmode="decimal" placeholder="Y Nord (m)" aria-label="Y de la référence R">
+        <button class="icon-btn pick-btn" data-act="pick" title="Placer sur la carte">📍</button>
+      </div>
+    </div>
+    <div class="grid2" style="margin-top:6px">
+      <label class="f"><span id="lrLabel">LECTURE SUR R (gon)</span>
+        <input class="num" id="LR" inputmode="decimal" placeholder="0">
+      </label>
+      <label class="f">DIST. MESURÉE A→R (m)
+        <input class="num" id="DmR" inputmode="decimal" placeholder="contrôle">
+      </label>
+    </div>
+    <div class="card" id="stationOut"></div>
+
+    <h3><span class="dot" style="background:var(--accent)"></span>Bornes à rétablir <small>colle une liste « Nom X Y » pour en ajouter plusieurs</small></h3>
+    <div id="bornes"></div>
+    <div class="add-row">
+      <button id="addBorneBtn">+ Ajouter une borne</button>
+      <button id="fitBtn">Voir sur la carte</button>
+    </div>
+
+    <details>
+      <summary>Comment c'est calculé ?</summary>
+      <p><b>Gisement</b> : compté depuis le Nord du quadrillage (axe Y), sens horaire. Il ne dépend ni de la zone, ni de l'échelle, ni de l'altitude.</p>
+      <p><b>Lecture à afficher</b> = Gisement A→B − V0, avec V0 = Gisement A→R − Lecture sur R.</p>
+      <p><b>Distance</b> : entre deux coordonnées Merchich (projection Lambert) on obtient une distance « grille ». Au sol : distance terrain = distance grille ÷ (k × R/(R+H)), avec k le facteur d'échelle local (≈ 0,9996, soit ≈ +3,7 cm/100 m) et H l'altitude (+1,6 cm/100 m par 1000 m). L'altitude à 50 m près suffit.</p>
+      <p>Si ta station totale est réglée avec le facteur d'échelle, elle travaille déjà en grille : choisis « Oui ». Sinon (cas le plus courant), garde « Non ». La distance mesurée A→R doit être lue avec le même réglage.</p>
+    </details>
+
+    <div class="bottom-row">
+      <button id="copyFicheBtn">Copier la fiche</button>
+      <button id="exportFicheBtn" class="primary">Exporter la fiche</button>
+      <button id="resetGisBtn">Effacer</button>
+    </div>
+    <div class="status" id="gisStatus">Saisis les coordonnées depuis le plan de bornage. 📍 permet de placer un point sur la carte (repérage seulement, ±7 m).</div>
   </div>
-  <div class="meta">
-    <span id="zoneVal">Zone : —</span>
-    <span id="accuracyVal">Précision méthode : —</span>
-  </div>
-  <div class="status" id="status">Autorise la localisation pour ouvrir la carte sur ta position, ou touche directement la carte pour choisir un point.</div>
-  <div class="bottom-row">
-    <button id="copyBtn">Copier X / Y</button>
-    <button id="saveBtn" class="primary">Enregistrer le point</button>
-    <button id="exportBtn">Exporter CSV</button>
-  </div>
-  <div class="status" id="savedCount">Aucun point enregistré.</div>
 </section>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -100,42 +242,60 @@
 (() => {
   "use strict";
   const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const store = {
+    get(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+  };
   const status = (msg, type="") => { $("status").textContent = msg; $("status").className = "status " + type; };
+  const gisStatus = (msg, type="") => { $("gisStatus").textContent = msg; $("gisStatus").className = "status " + type; };
 
   // EPSG registry definitions: Merchich / Nord Maroc (26191), Sud Maroc (26192).
   // The +towgs84 values implement EPSG operation 1166 (Merchich -> WGS 84):
   // geocentric translations +31 m, +146 m, +47 m; EPSG stated accuracy 7 m.
   proj4.defs("EPSG:26191", "+proj=lcc +lat_1=33.3 +lat_0=33.3 +lon_0=-5.4 +k_0=0.999625769 +x_0=500000 +y_0=300000 +ellps=clrk80ign +towgs84=31,146,47,0,0,0,0 +units=m +no_defs +type=crs");
   proj4.defs("EPSG:26192", "+proj=lcc +lat_1=29.7 +lat_0=29.7 +lon_0=-5.4 +k_0=0.999615596 +x_0=500000 +y_0=300000 +ellps=clrk80ign +towgs84=31,146,47,0,0,0,0 +units=m +no_defs +type=crs");
+  const ZONES = {
+    "EPSG:26191": { label:"Merchich / Nord Maroc (EPSG:26191)", short:"Nord", lat0:33.3, k0:0.999625769 },
+    "EPSG:26192": { label:"Merchich / Sud Maroc (EPSG:26192)",  short:"Sud",  lat0:29.7, k0:0.999615596 }
+  };
 
+  /* =================== CARTE =================== */
   const map = L.map("map", { zoomControl:true }).setView([31.7917, -7.0926], 5);
   const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom:19, attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+    maxZoom:20, maxNativeZoom:19, attribution:'© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
   });
   const imagery = L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-    maxZoom:19, attribution:'Tiles © Esri'
+    maxZoom:20, maxNativeZoom:18, attribution:'Tiles © Esri'
   });
   let satellite = true;
   imagery.addTo(map);
   let selectedMarker = null, current = null, userMarker = null;
-  const saved = [];
+  const saved = store.get("mm-points", []);
+  const refreshSaved = () => {
+    $("savedCount").textContent = saved.length ? saved.length + " point(s) enregistré(s) (conservés sur cet appareil)." : "Aucun point enregistré.";
+  };
+  refreshSaved();
 
   function inEPSG1166Area(lat, lon) {
     return lat >= 27.66 && lat <= 35.97 && lon >= -13.24 && lon <= -1.01;
   }
-  function convert(lat, lon) {
+  function convert(lat, lon, forcedEpsg) {
     // EPSG:26191 area north of 31°30'N; EPSG:26192 area south.
-    const epsg = lat >= 31.5 ? "EPSG:26191" : "EPSG:26192";
-    const zone = lat >= 31.5 ? "Merchich / Nord Maroc (EPSG:26191)" : "Merchich / Sud Maroc (EPSG:26192)";
+    const epsg = forcedEpsg || (lat >= 31.5 ? "EPSG:26191" : "EPSG:26192");
     const xy = proj4("EPSG:4326", epsg, [lon, lat]);
-    return { x:xy[0], y:xy[1], epsg, zone };
+    return { x:xy[0], y:xy[1], epsg, zone:ZONES[epsg].label };
+  }
+  function toLatLng(x, y, epsg) {
+    const ll = proj4(epsg, "EPSG:4326", [x, y]);
+    return (Number.isFinite(ll[0]) && Number.isFinite(ll[1])) ? [ll[1], ll[0]] : null;
   }
   function showPoint(lat, lon, label="Point sélectionné") {
     const c = convert(lat, lon);
     current = { lat, lon, ...c, label };
     if (selectedMarker) map.removeLayer(selectedMarker);
     selectedMarker = L.marker([lat,lon]).addTo(map).bindPopup(
-      `<b>${label}</b><br>X : ${c.x.toFixed(2)} m<br>Y : ${c.y.toFixed(2)} m`
+      `<b>${esc(label)}</b><br>X : ${c.x.toFixed(2)} m<br>Y : ${c.y.toFixed(2)} m`
     ).openPopup();
     $("xVal").textContent = c.x.toFixed(2);
     $("yVal").textContent = c.y.toFixed(2);
@@ -147,23 +307,29 @@
       status("Coordonnées calculées. Transformation EPSG 1166 (Merchich → WGS 84), précision publiée : 7 m. Adapté au repérage, pas à un bornage cadastral.", "good");
     }
   }
-  map.on("click", e => showPoint(e.latlng.lat, e.latlng.lng));
-  $("locateBtn").addEventListener("click", locate);
-  function locate() {
+
+  $("locateBtn").addEventListener("click", () => locate(true));
+  // center = true : centre la carte et sélectionne le point ; false : met juste à jour zone/altitude GPS
+  function locate(center = true) {
     if (!navigator.geolocation) { status("La géolocalisation n'est pas disponible sur cet appareil.", "warn"); return; }
-    status("Recherche de ta position GPS…");
+    if (center) status("Recherche de ta position GPS…");
     navigator.geolocation.getCurrentPosition(pos => {
       const lat = pos.coords.latitude, lon = pos.coords.longitude;
       const acc = Math.round(pos.coords.accuracy);
-      map.setView([lat,lon], 17);
       if (userMarker) map.removeLayer(userMarker);
       userMarker = L.circleMarker([lat,lon], {radius:8,color:"#0879d1",fillColor:"#36a9ff",fillOpacity:.95,weight:3}).addTo(map)
         .bindPopup("Ta position GPS<br>Précision GPS annoncée : ±"+acc+" m");
-      showPoint(lat,lon,"Ma position GPS");
-      status("Position GPS reçue (précision annoncée par l'appareil : ±"+acc+" m). La précision finale dépend aussi du GPS, de la carte et de la transformation.", "good");
+      if (center) {
+        map.setView([lat,lon], 17);
+        showPoint(lat,lon,"Ma position GPS");
+        status("Position GPS reçue (précision annoncée par l'appareil : ±"+acc+" m). La précision finale dépend aussi du GPS, de la carte et de la transformation.", "good");
+      }
+      applyGpsZone(lat, lon, pos.coords.altitude);
     }, err => {
       const messages = {1:"Autorisation de localisation refusée. Tu peux quand même cliquer sur la carte.",2:"Position GPS indisponible. Tu peux cliquer sur la carte.",3:"Délai GPS dépassé. Réessaie ou clique sur la carte."};
-      status(messages[err.code] || "Impossible d'obtenir la position GPS.", "warn");
+      const msg = messages[err.code] || "Impossible d'obtenir la position GPS.";
+      status(msg, "warn");
+      if (pendingAlt) { pendingAlt = false; gisStatus("GPS indisponible : saisis l'altitude approximative du chantier.", "warn"); }
     }, {enableHighAccuracy:true, timeout:15000, maximumAge:30000});
   }
   $("layersBtn").addEventListener("click", () => {
@@ -187,29 +353,521 @@
   }
   $("searchBtn").addEventListener("click", search);
   $("searchInput").addEventListener("keydown", e => { if(e.key==="Enter") search(); });
-  $("copyBtn").addEventListener("click", async () => {
+
+  const copyText = async (txt, out) => {
+    try { await navigator.clipboard.writeText(txt); out("Copié dans le presse-papiers.", "good"); }
+    catch { out("Copie impossible ici. Sélectionne le texte manuellement.", "warn"); }
+  };
+  const downloadCSV = (rows, filename) => {
+    const csv = "﻿" + rows.map(r => r.map(v => `"${String(v ?? "").replaceAll('"','""')}"`).join(";")).join("\r\n");
+    const blob = new Blob([csv], {type:"text/csv;charset=utf-8"});
+    const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  $("copyBtn").addEventListener("click", () => {
     if (!current) { status("Sélectionne d'abord un point.", "warn"); return; }
-    const txt = `X=${current.x.toFixed(2)} m, Y=${current.y.toFixed(2)} m (${current.epsg})`;
-    try { await navigator.clipboard.writeText(txt); status("Coordonnées copiées : "+txt, "good"); }
-    catch { status(txt, "good"); }
+    copyText(`X=${current.x.toFixed(2)} m, Y=${current.y.toFixed(2)} m (${current.epsg})`, status);
   });
   $("saveBtn").addEventListener("click", () => {
     if (!current) { status("Sélectionne d'abord un point.", "warn"); return; }
     saved.push({...current, n:saved.length+1});
-    $("savedCount").textContent = saved.length+" point(s) enregistré(s) dans cette session.";
-    status("Point enregistré dans la liste temporaire.", "good");
+    store.set("mm-points", saved); refreshSaved();
+    status("Point enregistré.", "good");
+  });
+  $("clearSavedBtn").addEventListener("click", () => {
+    if (!saved.length) return;
+    if (!confirm("Supprimer les " + saved.length + " point(s) enregistré(s) ?")) return;
+    saved.length = 0; store.set("mm-points", saved); refreshSaved();
   });
   $("exportBtn").addEventListener("click", () => {
     if (!saved.length) { status("Enregistre au moins un point avant l'export.", "warn"); return; }
     const rows = [["Point","Nom","X_Est_m","Y_Nord_m","EPSG","Latitude_WGS84","Longitude_WGS84"]];
     saved.forEach(p => rows.push([p.n,p.label,p.x.toFixed(2),p.y.toFixed(2),p.epsg,p.lat,p.lon]));
-    const csv = "\uFEFF" + rows.map(r => r.map(v => `"${String(v).replaceAll('"','""')}"`).join(";")).join("\r\n");
-    const blob = new Blob([csv],{type:"text/csv;charset=utf-8"});
-    const a = document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="merchich-map-points.csv"; a.click(); URL.revokeObjectURL(a.href);
+    downloadCSV(rows, "merchich-map-points.csv");
   });
 
+  /* =================== GISEMENT : CALCULS =================== */
+  const GON = 200 / Math.PI;
+  const norm400 = v => ((v % 400) + 400) % 400;
+  const RT = 6371000; // rayon terrestre moyen (correction d'altitude)
+  // Ellipsoïde Clarke 1880 (IGN) utilisé par Merchich
+  const A_CLK = 6378249.2, B_CLK = 6356515.0;
+  const E2 = 1 - (B_CLK*B_CLK)/(A_CLK*A_CLK), E = Math.sqrt(E2);
+
+  // Facteur d'échelle d'une projection Lambert conique conforme 1SP : k = k0·(m0/m)·(t/t0)^n
+  function lccScale(latDeg, z) {
+    const r = d => d * Math.PI / 180, p = r(latDeg), p0 = r(z.lat0);
+    const m = f => Math.cos(f) / Math.sqrt(1 - E2*Math.sin(f)**2);
+    const t = f => Math.tan(Math.PI/4 - f/2) / Math.pow((1 - E*Math.sin(f)) / (1 + E*Math.sin(f)), E/2);
+    return z.k0 * (m(p0)/m(p)) * Math.pow(t(p)/t(p0), Math.sin(p0));
+  }
+
+  // Calcul inverse : gisement (gon, Nord grille, sens horaire) et distance
+  function inverse(P, Q) {
+    const dx = Q.x - P.x, dy = Q.y - P.y;
+    const d = Math.hypot(dx, dy);
+    return { dx, dy, d, g: d > 0 ? norm400(Math.atan2(dx, dy) * GON) : NaN };
+  }
+
+  // Nombres : accepte la virgule, les espaces de milliers
+  function num(s) {
+    s = String(s ?? "").trim().replace(/[\s  ]/g, "").replace(",", ".");
+    if (s === "" || !/^[-+]?(\d+\.?\d*|\.\d+)(e[-+]?\d+)?$/i.test(s)) return NaN;
+    return Number(s);
+  }
+
+  // Angles : affichage et saisie selon l'unité choisie
+  function fmtAngle(g, unit = st.unit) {
+    if (!Number.isFinite(g)) return "—";
+    if (unit === "gon") return g.toFixed(4) + " gon";
+    const deg = g * 0.9;
+    if (unit === "deg") return deg.toFixed(5) + "°";
+    let d = Math.floor(deg), mf = (deg - d) * 60, m = Math.floor(mf), s = (mf - m) * 60;
+    s = Math.round(s * 10) / 10;
+    if (s >= 60) { s = 0; m++; } if (m >= 60) { m = 0; d++; } if (d >= 360) d -= 360;
+    return `${d}° ${String(m).padStart(2,"0")}′ ${s.toFixed(1).padStart(4,"0")}″`;
+  }
+  function parseAngle(str, unit = st.unit) {
+    if (String(str ?? "").trim() === "") return 0;
+    if (unit === "gon") return num(str);
+    if (unit === "deg") return num(str) / 0.9;
+    const parts = String(str).trim().replace(",", ".").split(/[^\d.]+/).filter(Boolean).map(Number);
+    if (!parts.length || parts.some(n => !Number.isFinite(n))) return NaN;
+    const [d, m = 0, s = 0] = parts;
+    return (d + m/60 + s/3600) / 0.9;
+  }
+  const fmtD = d => Number.isFinite(d) ? d.toFixed(3) + " m" : "—";
+  const fmtS = v => (v >= 0 ? "+" : "") + v.toFixed(3);
+
+  /* =================== GISEMENT : ÉTAT =================== */
+  const defaultState = () => ({
+    v: 2, zone: "EPSG:26191", zoneManual: false, unit: "gon", distMode: "terrain",
+    A: { x:"", y:"" }, R: { x:"", y:"" }, LR: "", DmR: "", H: "",
+    bornes: [{ name:"B1", x:"", y:"" }]
+  });
+  let st = Object.assign(defaultState(), store.get("mm-gisement", {}));
+  if (st.v !== 2) { st.v = 2; st.distMode = "terrain"; } // ancienne version : « grille » par défaut
+  if (!ZONES[st.zone]) st.zone = "EPSG:26191";
+  if (!Array.isArray(st.bornes) || !st.bornes.length) st.bornes = [{ name:"B1", x:"", y:"" }];
+  let gps = null; // dernière position GPS : { lat, lon, alt, zone }
+
+  const getPt = key => key === "A" ? st.A : key === "R" ? st.R : st.bornes[+key.slice(1)];
+  const ptVal = p => p ? { x:num(p.x), y:num(p.y) } : { x:NaN, y:NaN };
+  const isValid = p => { const v = ptVal(p); return Number.isFinite(v.x) && Number.isFinite(v.y); };
+  const nextName = () => {
+    let i = st.bornes.length + 1;
+    const names = new Set(st.bornes.map(b => b.name));
+    while (names.has("B" + i)) i++;
+    return "B" + i;
+  };
+
+  /* =================== GISEMENT : INTERFACE =================== */
+  function renderBornes() {
+    $("bornes").innerHTML = st.bornes.map((b, i) => `
+      <div class="borne pt" data-pt="b${i}">
+        <div class="borne-head">
+          <input data-f="name" value="${esc(b.name)}" aria-label="Nom de la borne" maxlength="24">
+          <button class="icon-btn" data-act="del" title="Supprimer cette borne" ${st.bornes.length < 2 ? "disabled" : ""}>✕</button>
+        </div>
+        <div class="xy">
+          <input class="num" data-f="x" inputmode="decimal" placeholder="X Est (m)" value="${esc(b.x)}" aria-label="X de ${esc(b.name)}">
+          <input class="num" data-f="y" inputmode="decimal" placeholder="Y Nord (m)" value="${esc(b.y)}" aria-label="Y de ${esc(b.name)}">
+          <button class="icon-btn pick-btn" data-act="pick" title="Placer sur la carte">📍</button>
+        </div>
+        <div class="out" id="out-b${i}"></div>
+      </div>`).join("");
+    if (pickKey) setPick(pickKey.startsWith("b") && !getPt(pickKey) ? null : pickKey);
+  }
+
+  function fillStaticInputs() {
+    for (const key of ["A", "R"]) {
+      const box = document.querySelector(`.pt[data-pt="${key}"]`);
+      box.querySelector('[data-f="x"]').value = st[key].x;
+      box.querySelector('[data-f="y"]').value = st[key].y;
+    }
+    $("LR").value = st.LR; $("DmR").value = st.DmR; $("Halt").value = st.H;
+    $("zoneSel").value = st.zone; $("unitSel").value = st.unit; $("distMode").value = st.distMode;
+    updateUnitLabels();
+  }
+  function updateUnitLabels() {
+    const u = { gon:"gon", deg:"°", dms:"° ′ ″" }[st.unit];
+    $("lrLabel").textContent = `LECTURE SUR R (${u})`;
+    $("LR").placeholder = st.unit === "dms" ? "0 00 00" : "0";
+    $("zoneLabel").textContent = st.zoneManual ? "ZONE" : "ZONE (auto GPS)";
+  }
+
+  /* ----- Zones : détection GPS et contrôle de cohérence ----- */
+  // Emprises EPSG des deux zones (avec une petite marge)
+  const ZONE_AREA = {
+    "EPSG:26191": { s:31.4, n:36.1, w:-10.0, e:-0.9 },
+    "EPSG:26192": { s:27.5, n:31.6, w:-13.4, e:-3.4 }
+  };
+  const zoneFromLat = lat => lat >= 31.5 ? "EPSG:26191" : "EPSG:26192";
+  const inZone = (ll, epsg) => { const a = ZONE_AREA[epsg]; return ll && ll[0] >= a.s && ll[0] <= a.n && ll[1] >= a.w && ll[1] <= a.e; };
+  const otherZone = epsg => epsg === "EPSG:26191" ? "EPSG:26192" : "EPSG:26191";
+
+  function zoneWarnings(hasA, A) {
+    const msgs = [];
+    const pts = [];
+    if (hasA) pts.push(["A", A]);
+    if (isValid(st.R)) pts.push(["R", ptVal(st.R)]);
+    st.bornes.forEach(b => { if (isValid(b)) pts.push([b.name, ptVal(b)]); });
+    const out = pts.filter(([, p]) => !inZone(toLatLng(p.x, p.y, st.zone), st.zone));
+    if (out.length) {
+      const oz = otherZone(st.zone);
+      const fitsOther = out.every(([, p]) => inZone(toLatLng(p.x, p.y, oz), oz));
+      msgs.push(`⚠ ${out.map(o => esc(o[0])).join(", ")} tombe${out.length > 1 ? "nt" : ""} hors de la zone ${ZONES[st.zone].short} : vérifie les coordonnées`
+        + (fitsOther ? ` ou passe en zone ${ZONES[oz].short}.` : "."));
+    }
+    if (gps && gps.zone !== st.zone && pts.length) msgs.push(`⚠ Ton GPS te situe en zone ${ZONES[gps.zone].short}, la fiche est en zone ${ZONES[st.zone].short}.`);
+    if (hasA) {
+      const far = pts.filter(([n, p]) => n !== "A" && Math.hypot(p.x - A.x, p.y - A.y) > 2000);
+      if (far.length) msgs.push(`⚠ ${far.map(o => esc(o[0])).join(", ")} à plus de 2 km de la station : faute de frappe probable.`);
+    }
+    const el = $("zoneWarn");
+    el.hidden = !msgs.length;
+    el.innerHTML = msgs.join("<br>");
+  }
+
+  function applyGpsZone(lat, lon, alt) {
+    gps = { lat, lon, alt: Number.isFinite(alt) ? alt : null, zone: zoneFromLat(lat) };
+    if (gps.zone !== st.zone && !st.zoneManual && !isValid(st.A)) {
+      st.zone = gps.zone; $("zoneSel").value = st.zone;
+      gisStatus(`Zone réglée automatiquement d'après ton GPS : ${ZONES[st.zone].label}.`, "good");
+    }
+    if (pendingAlt) { pendingAlt = false; fillGpsAlt(); }
+    updateUnitLabels(); compute();
+  }
+
+  let pendingAlt = false;
+  function fillGpsAlt() {
+    if (gps && gps.alt !== null) {
+      st.H = String(Math.round(gps.alt)); $("Halt").value = st.H; compute();
+      gisStatus(`Altitude GPS : ${st.H} m (une précision de ±50 m suffit pour ce calcul).`, "good");
+    } else if (gps) {
+      gisStatus("Cet appareil ne fournit pas l'altitude GPS (fréquent sur ordinateur). Saisis l'altitude approximative du chantier.", "warn");
+    } else {
+      pendingAlt = true; gisStatus("Recherche de la position GPS…"); locate(false);
+    }
+  }
+  $("hGpsBtn").addEventListener("click", fillGpsAlt);
+  const markInvalid = (el, bad) => el.classList.toggle("invalid", !!bad);
+
+  let saveTimer = 0;
+  function persist() { clearTimeout(saveTimer); saveTimer = setTimeout(() => store.set("mm-gisement", st), 250); }
+
+  function compute() {
+    persist();
+    const z = ZONES[st.zone];
+    const A = ptVal(st.A), R = ptVal(st.R);
+    const hasA = isValid(st.A), hasR = isValid(st.R);
+
+    // Validation visuelle des champs
+    document.querySelectorAll('#tab-gis input.num[data-f]').forEach(el => markInvalid(el, el.value.trim() !== "" && !Number.isFinite(num(el.value))));
+    const LRg = parseAngle(st.LR);
+    markInvalid($("LR"), !Number.isFinite(LRg));
+    const Dm = num(st.DmR); markInvalid($("DmR"), st.DmR.trim() !== "" && !Number.isFinite(Dm));
+    const Hn = num(st.H); markInvalid($("Halt"), st.H.trim() !== "" && !Number.isFinite(Hn));
+    const H = Number.isFinite(Hn) ? Hn : 0;
+
+    // Facteur d'échelle local au droit de la station
+    let k = NaN, kTot = 1;
+    if (hasA) {
+      const ll = toLatLng(A.x, A.y, st.zone);
+      if (ll) { k = lccScale(ll[0], z); kTot = k * RT / (RT + H); }
+      if (!Number.isFinite(kTot)) kTot = 1;
+    }
+    const terrain = d => d / kTot;
+    const mainD = d => st.distMode === "terrain" ? terrain(d) : d;
+    const otherD = d => st.distMode === "terrain" ? `grille ${fmtD(d)}` : `terrain ${fmtD(terrain(d))}`;
+
+    // Orientation de la station
+    let V0 = NaN, out = "";
+    if (!hasA) {
+      out = `<span class="hint">Saisis les coordonnées de la station A (point connu où l'appareil est installé).</span>`;
+    } else if (!hasR) {
+      out = `<span class="hint">Sans référence R : seuls le gisement et la distance de chaque borne sont calculés. Ajoute R pour obtenir la lecture à afficher.</span>`;
+    } else {
+      const ar = inverse(A, R);
+      if (ar.d < 0.001) {
+        out = `<span class="bad">A et R sont confondus : choisis une autre référence.</span>`;
+      } else {
+        V0 = Number.isFinite(LRg) ? norm400(ar.g - LRg) : NaN;
+        out = `Gisement A→R : <b>${fmtAngle(ar.g)}</b><br>
+               Distance A→R : <b>${fmtD(mainD(ar.d))}</b> <span class="hint">(${otherD(ar.d)})</span><br>
+               Orientation V0 : <b>${fmtAngle(V0)}</b>`;
+        if (Number.isFinite(Dm) && Dm > 0) {
+          const ecart = Dm - mainD(ar.d);
+          const cls = Math.abs(ecart) <= 0.02 ? "ok" : "bad";
+          out += `<br>Contrôle distance : <span class="${cls}">${ecart >= 0 ? "+" : ""}${(ecart*100).toFixed(1)} cm</span>`
+               + (cls === "bad" ? ` <span class="hint">— vérifie la station, la référence ou les coordonnées</span>` : "");
+        }
+        if (ar.d < 20) out += `<br><span class="hint">⚠ Référence proche (${ar.d.toFixed(1)} m) : l'orientation sera moins précise. Préfère une visée plus longue que la borne à implanter.</span>`;
+      }
+    }
+    if (hasA && Number.isFinite(k)) {
+      const cmScale = (1/k - 1) * 1e4, cmAlt = H / RT * 1e4, cmTot = (1/kTot - 1) * 1e4;
+      out += `<div class="detail">Terrain = grille ${cmTot >= 0 ? "+" : ""}${cmTot.toFixed(1)} cm/100 m `
+           + `(échelle k=${k.toFixed(6)} : ${cmScale >= 0 ? "+" : ""}${cmScale.toFixed(1)} · altitude ${H} m : +${cmAlt.toFixed(1)})`
+           + (st.distMode === "terrain" ? " — appliqué" : " — non appliqué (ta station le fait)") + `</div>`;
+    }
+    $("stationOut").innerHTML = out;
+    zoneWarnings(hasA, A);
+
+    // Résultats par borne
+    const results = st.bornes.map((b, i) => {
+      const el = $("out-b" + i);
+      if (!el) return null;
+      if (!isValid(b)) { el.innerHTML = `<div class="out-empty">${b.x || b.y ? "Coordonnées incomplètes ou invalides." : "Saisis X et Y de la borne."}</div>`; return null; }
+      if (!hasA) { el.innerHTML = `<div class="out-empty">En attente de la station A.</div>`; return null; }
+      const r = inverse(A, ptVal(b));
+      if (r.d < 0.001) { el.innerHTML = `<div class="out-empty bad">Borne confondue avec la station.</div>`; return null; }
+      const L = Number.isFinite(V0) ? norm400(r.g - V0) : NaN;
+      el.innerHTML = `
+        <div class="kpis">
+          <div class="kpi"><span>GISEMENT A→${esc(b.name)}</span><b>${fmtAngle(r.g)}</b></div>
+          <div class="kpi"><span>DISTANCE ${st.distMode === "terrain" ? "TERRAIN" : "GRILLE"}</span><b>${fmtD(mainD(r.d))}</b></div>
+        </div>
+        ${Number.isFinite(L) ? `<div class="lecture"><span>LECTURE À AFFICHER</span><b>${fmtAngle(L)}</b></div>` : ""}
+        <div class="detail">ΔX ${fmtS(r.dx)} · ΔY ${fmtS(r.dy)} · ${otherD(r.d)}</div>`;
+      return { name:b.name, x:ptVal(b).x, y:ptVal(b).y, ...r, dMain:mainD(r.d), dTerrain:terrain(r.d), L };
+    });
+
+    lastCalc = { hasA, hasR, A, R, V0, LRg, k, kTot, H, results };
+    drawMap();
+  }
+  let lastCalc = null;
+
+  /* ----- Événements des champs (délégation) ----- */
+  const gis = $("tab-gis");
+  gis.addEventListener("input", e => {
+    const el = e.target, f = el.dataset.f, box = el.closest("[data-pt]");
+    if (f && box) {
+      const p = getPt(box.dataset.pt);
+      if (!p) return;
+      p[f] = el.value;
+    } else if (el.id === "LR") st.LR = el.value;
+    else if (el.id === "DmR") st.DmR = el.value;
+    else if (el.id === "Halt") st.H = el.value;
+    compute();
+  });
+  gis.addEventListener("change", e => {
+    const el = e.target;
+    if (el.id === "zoneSel") { st.zone = el.value; st.zoneManual = true; updateUnitLabels(); }
+    else if (el.id === "distMode") st.distMode = el.value;
+    else if (el.id === "unitSel") {
+      // Convertit la lecture déjà saisie dans la nouvelle unité
+      const g = parseAngle(st.LR, st.unit);
+      st.unit = el.value;
+      if (st.LR.trim() !== "" && Number.isFinite(g)) {
+        st.LR = st.unit === "gon" ? +g.toFixed(4) + "" : st.unit === "deg" ? +(g*0.9).toFixed(6) + "" : fmtAngle(g, "dms").replace(/[°′″]/g, "").replace(/\s+/g, " ").trim();
+        $("LR").value = st.LR;
+      }
+      updateUnitLabels();
+    } else return;
+    compute();
+  });
+
+  // Coller « X Y » d'un coup, ou une liste « Nom X Y » sur plusieurs lignes
+  function parseLine(line) {
+    const parts = line.trim().split(/[;\t|]+|\s+/).filter(Boolean);
+    if (parts.length < 2) return null;
+    const x = num(parts[parts.length - 2]), y = num(parts[parts.length - 1]);
+    if (!Number.isFinite(x) || !Number.isFinite(y) || Math.abs(x) < 1000 || Math.abs(y) < 1000) return null;
+    return { name: parts.length > 2 ? parts.slice(0, -2).join(" ") : "", x: parts[parts.length - 2], y: parts[parts.length - 1] };
+  }
+  gis.addEventListener("paste", e => {
+    const el = e.target, box = el.closest("[data-pt]");
+    if (!box || !(el.dataset.f === "x" || el.dataset.f === "y")) return;
+    const text = (e.clipboardData || window.clipboardData).getData("text");
+    const lines = text.split(/\r?\n/).map(parseLine).filter(Boolean);
+    if (!lines.length) return;
+    const key = box.dataset.pt;
+    if (lines.length === 1 || !key.startsWith("b")) {
+      e.preventDefault();
+      const p = getPt(key), l = lines[0];
+      p.x = l.x; p.y = l.y; if (l.name && key.startsWith("b")) p.name = l.name.slice(0, 24);
+      if (key.startsWith("b")) renderBornes(); else fillStaticInputs();
+      compute();
+      return;
+    }
+    e.preventDefault();
+    const idx = +key.slice(1);
+    lines.forEach((l, j) => {
+      const target = st.bornes[idx + j];
+      const entry = { name: (l.name || (target && target.name) || nextName()).slice(0, 24), x: l.x, y: l.y };
+      if (target && !isValid(target)) st.bornes[idx + j] = entry;
+      else if (j === 0) st.bornes[idx] = entry;
+      else st.bornes.splice(idx + j, 0, entry);
+    });
+    renderBornes(); compute(); fitToPoints();
+    gisStatus(lines.length + " bornes importées depuis le presse-papiers.", "good");
+  });
+
+  /* ----- Boutons ----- */
+  let pickKey = null;
+  function setPick(key) {
+    pickKey = key;
+    document.querySelectorAll("#tab-gis .pt").forEach(b => b.classList.toggle("picking", b.dataset.pt === key));
+    $("map").classList.toggle("picking", !!key);
+    if (key) {
+      const name = key === "A" ? "la station A" : key === "R" ? "la référence R" : getPt(key).name;
+      gisStatus(`Touche la carte pour placer ${name}. (Précision ±7 m : repérage uniquement, pas pour un bornage.) Appuie à nouveau sur 📍 pour annuler.`, "warn");
+    }
+  }
+  gis.addEventListener("click", e => {
+    const btn = e.target.closest("button[data-act]");
+    if (!btn) return;
+    const key = btn.closest("[data-pt]").dataset.pt;
+    if (btn.dataset.act === "pick") {
+      setPick(pickKey === key ? null : key);
+      if (!pickKey) gisStatus("Placement annulé.");
+    } else if (btn.dataset.act === "del" && st.bornes.length > 1) {
+      st.bornes.splice(+key.slice(1), 1);
+      if (pickKey === key) setPick(null);
+      renderBornes(); compute();
+    }
+  });
+  $("addBorneBtn").addEventListener("click", () => {
+    st.bornes.push({ name: nextName(), x:"", y:"" });
+    renderBornes(); compute();
+    const inputs = $("bornes").querySelectorAll('input[data-f="x"]');
+    inputs[inputs.length - 1].focus();
+  });
+  $("resetGisBtn").addEventListener("click", () => {
+    if (!confirm("Effacer la station, la référence et toutes les bornes ?")) return;
+    const keep = { zone: gps ? gps.zone : st.zone, unit: st.unit, distMode: st.distMode, H: st.H };
+    st = Object.assign(defaultState(), keep);
+    setPick(null); fillStaticInputs(); renderBornes(); compute();
+    gisStatus("Fiche effacée.");
+  });
+
+  map.on("click", e => {
+    if (pickKey) {
+      const c = convert(e.latlng.lat, e.latlng.lng, st.zone);
+      const p = getPt(pickKey);
+      p.x = c.x.toFixed(2); p.y = c.y.toFixed(2);
+      const key = pickKey; setPick(null);
+      if (key.startsWith("b")) renderBornes(); else fillStaticInputs();
+      compute();
+      gisStatus(`Point placé depuis la carte (X ${p.x} / Y ${p.y}). Remplace-le par les coordonnées du plan pour un calcul précis.`, "warn");
+      return;
+    }
+    showPoint(e.latlng.lat, e.latlng.lng);
+  });
+
+  // Transfert depuis l'onglet Repérage
+  function needCurrent() { if (!current) { status("Sélectionne d'abord un point sur la carte.", "warn"); return false; } return true; }
+  $("toStationBtn").addEventListener("click", () => {
+    if (!needCurrent()) return;
+    st.zone = current.epsg; st.A = { x: current.x.toFixed(2), y: current.y.toFixed(2) };
+    fillStaticInputs(); compute(); showTab("gis");
+    gisStatus("Station A reprise du point sélectionné (repérage ±7 m).", "warn");
+  });
+  $("toBorneBtn").addEventListener("click", () => {
+    if (!needCurrent()) return;
+    st.zone = current.epsg;
+    const entry = { name: nextName(), x: current.x.toFixed(2), y: current.y.toFixed(2) };
+    const empty = st.bornes.findIndex(b => !b.x && !b.y);
+    if (empty >= 0) { entry.name = st.bornes[empty].name; st.bornes[empty] = entry; } else st.bornes.push(entry);
+    fillStaticInputs(); renderBornes(); compute(); showTab("gis");
+    gisStatus(`${entry.name} reprise du point sélectionné (repérage ±7 m).`, "warn");
+  });
+
+  /* ----- Carte de l'implantation ----- */
+  const implLayer = L.layerGroup().addTo(map);
+  function addPoint(x, y, label, color) {
+    const ll = toLatLng(x, y, st.zone);
+    if (!ll) return null;
+    L.circleMarker(ll, { radius:7, color:"white", weight:2, fillColor:color, fillOpacity:1 })
+      .bindTooltip(label, { permanent:true, direction:"right", offset:[8,0], className:"map-label" })
+      .bindPopup(`<b>${esc(label)}</b><br>X : ${x.toFixed(3)} m<br>Y : ${y.toFixed(3)} m`)
+      .addTo(implLayer);
+    return ll;
+  }
+  function drawMap() {
+    implLayer.clearLayers();
+    if (!lastCalc) return;
+    const { hasA, hasR, A, R } = lastCalc;
+    const llA = hasA ? addPoint(A.x, A.y, "A", "#0879d1") : null;
+    const llR = hasR ? addPoint(R.x, R.y, "R", "#64757b") : null;
+    if (llA && llR) L.polyline([llA, llR], { color:"#ffffff", weight:2, dashArray:"6 6", opacity:.9 }).addTo(implLayer);
+    st.bornes.forEach((b, i) => {
+      if (!isValid(b)) return;
+      const v = ptVal(b), ll = addPoint(v.x, v.y, b.name || "B" + (i + 1), "#e6a23c");
+      const r = lastCalc.results[i];
+      if (llA && ll) L.polyline([llA, ll], { color:"#e6a23c", weight:3 })
+        .bindTooltip(r ? `${fmtAngle(r.g)} · ${fmtD(r.dMain)}` : "", { sticky:true })
+        .addTo(implLayer);
+    });
+  }
+  function fitToPoints() {
+    const pts = [];
+    implLayer.eachLayer(l => { if (l.getLatLng) pts.push(l.getLatLng()); });
+    if (!pts.length) { gisStatus("Aucun point valide à afficher.", "warn"); return; }
+    if (pts.length === 1) map.setView(pts[0], 18); else map.fitBounds(L.latLngBounds(pts), { padding:[40,40], maxZoom:19 });
+  }
+  $("fitBtn").addEventListener("click", fitToPoints);
+
+  /* ----- Fiche : copier / exporter ----- */
+  function ficheRows() {
+    const c = lastCalc, unitTxt = { gon:"gon", deg:"deg", dms:"DMS" }[st.unit];
+    const distTxt = st.distMode === "terrain" ? "terrain" : "grille";
+    const rows = [["Point","X_Est_m","Y_Nord_m",`Gisement_${unitTxt}`,`Distance_${distTxt}_m`,"Distance_grille_m","Distance_terrain_m",`Lecture_${unitTxt}`]];
+    rows.push(["Station A", c.A.x.toFixed(3), c.A.y.toFixed(3), "", "", "", "", ""]);
+    if (c.hasR) {
+      const ar = inverse(c.A, c.R);
+      rows.push(["Référence R", c.R.x.toFixed(3), c.R.y.toFixed(3), fmtAngle(ar.g), (st.distMode === "terrain" ? ar.d / c.kTot : ar.d).toFixed(3), ar.d.toFixed(3), (ar.d / c.kTot).toFixed(3), fmtAngle(c.LRg)]);
+    }
+    c.results.forEach(r => { if (r) rows.push([r.name, r.x.toFixed(3), r.y.toFixed(3), fmtAngle(r.g), r.dMain.toFixed(3), r.d.toFixed(3), r.dTerrain.toFixed(3), Number.isFinite(r.L) ? fmtAngle(r.L) : ""]); });
+    return rows;
+  }
+  const ficheReady = () => {
+    if (!lastCalc || !lastCalc.hasA || !lastCalc.results.some(Boolean)) { gisStatus("Saisis au moins la station A et une borne valide.", "warn"); return false; }
+    return true;
+  };
+  $("copyFicheBtn").addEventListener("click", () => {
+    if (!ficheReady()) return;
+    const c = lastCalc, z = ZONES[st.zone];
+    const lines = [`FICHE D'IMPLANTATION — ${z.label}`, `Date : ${new Date().toLocaleString("fr-FR")}`,
+      `Station A : X ${c.A.x.toFixed(3)}  Y ${c.A.y.toFixed(3)}`];
+    if (c.hasR) {
+      const ar = inverse(c.A, c.R);
+      lines.push(`Référence R : X ${c.R.x.toFixed(3)}  Y ${c.R.y.toFixed(3)}  |  G ${fmtAngle(ar.g)}  D ${fmtD(st.distMode === "terrain" ? ar.d / c.kTot : ar.d)}`);
+      lines.push(`Lecture sur R : ${fmtAngle(c.LRg)}  →  V0 = ${fmtAngle(c.V0)}`);
+    }
+    if (Number.isFinite(c.k)) lines.push(`Facteur d'échelle k = ${c.k.toFixed(8)}, H = ${c.H} m, distances ${st.distMode === "terrain" ? "terrain" : "grille"}`);
+    lines.push("");
+    c.results.forEach(r => { if (r) lines.push(`${r.name} : G ${fmtAngle(r.g)}  D ${fmtD(r.dMain)}` + (Number.isFinite(r.L) ? `  Lecture ${fmtAngle(r.L)}` : "")); });
+    copyText(lines.join("\n"), gisStatus);
+  });
+  $("exportFicheBtn").addEventListener("click", () => {
+    if (!ficheReady()) return;
+    downloadCSV(ficheRows(), `fiche-implantation-${new Date().toISOString().slice(0,10)}.csv`);
+    gisStatus("Fiche exportée en CSV (ouvrable dans Excel).", "good");
+  });
+
+  /* ----- Onglets ----- */
+  function showTab(name) {
+    for (const t of ["rep", "gis"]) {
+      $("tab-" + t).hidden = t !== name;
+      $("tabBtn-" + t).setAttribute("aria-selected", String(t === name));
+    }
+    if (name !== "gis") setPick(null);
+    store.set("mm-tab", name);
+    setTimeout(() => map.invalidateSize(), 50);
+  }
+  document.querySelectorAll(".tabs button").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+
+  fillStaticInputs(); renderBornes(); compute();
+  const startTab = store.get("mm-tab", "rep");
+  showTab(startTab);
+  if (startTab === "gis" && lastCalc && lastCalc.hasA) setTimeout(fitToPoints, 100);
+
   // Open on current position when permission is granted; otherwise ask once.
-  if (navigator.geolocation) locate();
+  // Au démarrage : position GPS (centre la carte en Repérage, règle seulement la zone en Gisement)
+  locate(startTab !== "gis");
   if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
     window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(()=>{}));
   }
